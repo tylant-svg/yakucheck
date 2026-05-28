@@ -93,6 +93,22 @@
   <section id="section-info" class="section" role="tabpanel">
 
     <div class="card">
+      <div class="card-title">🤖 Claude AI設定（任意）</div>
+      <p style="font-size:13px;color:var(--text-sub);margin-bottom:10px;line-height:1.7">
+        Anthropic APIキーを登録すると、カメラ撮影後にClaudeが薬名を自動識別します。<br>
+        キーはこの端末のみに保存され、外部には送信されません。
+      </p>
+      <div class="input-row">
+        <input id="api-key-input" class="text-input" type="password"
+          placeholder="sk-ant-..." autocomplete="off" autocorrect="off" autocapitalize="off">
+        <button id="save-api-btn" class="btn btn-primary" type="button">保存</button>
+      </div>
+      <p style="font-size:11px;color:var(--text-sub);margin-top:8px">
+        APIキーは <a href="https://console.anthropic.com/" target="_blank" rel="noopener" style="color:var(--primary)">console.anthropic.com</a> で取得できます。
+      </p>
+    </div>
+
+    <div class="card">
       <div class="card-title">📖 使い方</div>
       <ol style="padding-left:18px;line-height:2.2;font-size:14px">
         <li>患者のお薬手帳の薬品名を追加<br>
