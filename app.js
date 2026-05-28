@@ -229,13 +229,16 @@ async function runOCR(imageSource) {
         }
       }
     });
+    showProgress('ローカルDBと照合中…', 96);
+    const dbMatched = matchDrugsInText(text);
+
     let aiDrugs = null;
     if (claudeApiKey) {
-      showProgress('🤖 Claude AIで薬名を識別中…', 97);
+      showProgress('🤖 Claude AIで薬名を識別中…', 98);
       aiDrugs = await identifyDrugsWithClaude(text);
     }
     const candidates = extractDrugCandidates(text);
-    showOCRDialog(text, candidates, aiDrugs);
+    showOCRDialog(text, candidates, aiDrugs, dbMatched);
   } catch (err) {
     const msg = err.message || String(err);
     if (msg.includes('fetch') || msg.includes('network') || msg.includes('Failed')) {
@@ -254,6 +257,22 @@ function extractDrugCandidates(text) {
   return [...found].filter(c => c.length >= 3 && !common.includes(c)).slice(0, 30);
 }
 
+function matchDrugsInText(text) {
+  const results = [];
+  const normText = normalizeName(text);
+  for (const entry of DRUGDB) {
+    for (const kw of entry.keywords) {
+      if (kw.length < 3) continue;
+      const kwNorm = normalizeName(kw);
+      if (text.includes(kw) || normText.includes(kwNorm)) {
+        results.push(text.includes(kw) ? kw : entry.keywords[0]);
+        break;
+      }
+    }
+  }
+  return results;
+}
+
 function showProgress(msg, pct) {
   document.getElementById('results-content').innerHTML = `
     <div class="loading">
@@ -265,23 +284,38 @@ function showProgress(msg, pct) {
     </div>`;
 }
 
-function showOCRDialog(rawText, candidates, aiDrugs = null) {
+function showOCRDialog(rawText, candidates, aiDrugs = null, dbMatched = []) {
   let html = '';
+  const shownSet = new Set();
 
-  if (aiDrugs && aiDrugs.length > 0) {
-    html += '<div class="ocr-label" style="margin-bottom:6px">🤖 Claude AIが識別した薬名（自動選択済み）</div><div class="ocr-chips">';
-    html += aiDrugs.map(c =>
-      `<button class="ocr-chip ocr-chip-ai selected" data-name="${esc(c)}">${esc(c)}</button>`
-    ).join('');
+  // ① ローカルDB確認済み（緑・自動選択）
+  if (dbMatched.length > 0) {
+    html += '<div class="ocr-label" style="margin-bottom:6px">✅ ローカルDB確認済み（自動選択）</div><div class="ocr-chips">';
+    html += dbMatched.map(c => {
+      shownSet.add(c.toLowerCase());
+      return `<button class="ocr-chip ocr-chip-db selected" data-name="${esc(c)}">${esc(c)}</button>`;
+    }).join('');
     html += '</div>';
-  } else if (aiDrugs !== null && aiDrugs.length === 0) {
-    html += '<div style="font-size:12px;color:var(--text-sub);margin-bottom:8px">🤖 Claude AI：薬名が見つかりませんでした</div>';
   }
 
-  const aiSet = new Set((aiDrugs || []).map(n => n.toLowerCase()));
-  const remaining = candidates.filter(c => !aiSet.has(c.toLowerCase()));
+  // ② Claude AI識別（青・自動選択）※APIキーがある場合のみ
+  const aiNew = (aiDrugs || []).filter(c => !shownSet.has(c.toLowerCase()));
+  if (aiNew.length > 0) {
+    html += '<div class="ocr-label" style="margin-top:12px;margin-bottom:6px">🤖 Claude AIが識別した薬名（自動選択）</div><div class="ocr-chips">';
+    html += aiNew.map(c => {
+      shownSet.add(c.toLowerCase());
+      return `<button class="ocr-chip ocr-chip-ai selected" data-name="${esc(c)}">${esc(c)}</button>`;
+    }).join('');
+    html += '</div>';
+  } else if (aiDrugs !== null && aiDrugs.length === 0) {
+    html += '<div style="font-size:12px;color:var(--text-sub);margin-top:8px;margin-bottom:4px">🤖 Claude AI：追加の薬名は見つかりませんでした</div>';
+  }
+
+  // ③ その他のカタカナ候補（未選択）
+  const remaining = candidates.filter(c => !shownSet.has(c.toLowerCase()));
   if (remaining.length > 0) {
-    html += `<div class="ocr-label" style="margin-top:${aiDrugs ? '12px' : '0'};margin-bottom:6px">${aiDrugs ? 'その他の候補' : '薬名の候補（タップして選択）'}</div><div class="ocr-chips">`;
+    const hasAny = dbMatched.length > 0 || aiNew.length > 0;
+    html += `<div class="ocr-label" style="margin-top:${hasAny ? '12px' : '0'};margin-bottom:6px">${hasAny ? 'その他の候補' : '薬名の候補（タップして選択）'}</div><div class="ocr-chips">`;
     html += remaining.map(c =>
       `<button class="ocr-chip" data-name="${esc(c)}">${esc(c)}</button>`
     ).join('');
