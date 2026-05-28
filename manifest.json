@@ -1,0 +1,19 @@
+{
+  "name": "薬チェック - 救急薬剤確認",
+  "short_name": "薬チェック",
+  "description": "救急隊員向けお薬手帳解析ツール。薬の使用目的・既往歴をAIで即時確認。",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EEF2F7",
+  "theme_color": "#0055B3",
+  "categories": ["medical", "health"],
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0055B3">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="薬チェック">
+  <meta name="description" content="救急隊員向けお薬手帳解析ツール（APIキー不要）">
+  <title>薬チェック | 救急薬剤確認</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<header class="app-header">
+  <div class="logo">⛑️</div>
+  <div>
+    <h1>薬チェック</h1>
+    <p>救急薬剤確認システム</p>
+  </div>
+  <div class="api-status">
+    <span class="dot" id="api-dot"></span>
+    <span id="api-label">APIキー不要</span>
+  </div>
+</header>
+
+<!-- ═══ TABS ═══ -->
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="input"   role="tab">💊 薬入力</button>
+  <button class="tab"        data-tab="results" role="tab">📊 解析結果</button>
+  <button class="tab"        data-tab="info"    role="tab">ℹ️ 情報</button>
+</nav>
+
+<!-- ═══ MAIN ═══ -->
+<main class="content">
+
+  <!-- ─── 薬入力タブ ─── -->
+  <section id="section-input" class="section active" role="tabpanel">
+
+    <div class="card">
+      <div class="card-title">✏️ 薬品名を入力</div>
+      <div class="input-row">
+        <input id="med-input" class="text-input" type="text"
+          placeholder="例：アムロジピン錠5mg" autocomplete="off" autocorrect="off"
+          autocapitalize="off" enterkeyhint="done">
+        <button id="add-btn" class="btn btn-primary">追加</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📷 お薬手帳から読み取る</div>
+      <div class="capture-grid">
+        <button class="capture-card" id="camera-btn" type="button">
+          <span class="icon">📸</span>
+          <span>カメラ撮影</span>
+          <small>OCRで自動認識</small>
+        </button>
+        <button class="capture-card" id="barcode-btn" type="button">
+          <span class="icon">🔲</span>
+          <span>QR / バーコード</span>
+          <small>コードをスキャン</small>
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        登録済みの薬
+        <span class="badge" id="med-count">0</span>
+        <button id="clear-btn" class="btn btn-ghost" style="margin-left:auto;padding:5px 12px;font-size:12px" type="button">全削除</button>
+      </div>
+      <div id="med-list-wrap">
+        <div class="empty-state"><div class="e-icon">💊</div><p>薬を追加してください</p></div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ─── 解析結果タブ ─── -->
+  <section id="section-results" class="section" role="tabpanel">
+    <div id="results-content">
+      <div class="empty-state" style="padding:64px 20px">
+        <div class="e-icon">📊</div>
+        <p style="margin-bottom:6px">まだ解析されていません</p>
+        <p style="font-size:12.5px;margin-top:4px">薬を入力して「解析する」を押してください</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── 情報タブ ─── -->
+  <section id="section-info" class="section" role="tabpanel">
+
+    <div class="card">
+      <div class="card-title">📖 使い方</div>
+      <ol style="padding-left:18px;line-height:2.2;font-size:14px">
+        <li>患者のお薬手帳の薬品名を追加<br>
+          <span style="font-size:12px;color:var(--text-sub)">手入力・カメラOCR・QRコードに対応</span></li>
+        <li>「🔍 解析する」ボタンを押す</li>
+        <li>薬の目的・推定疾患・救急注意事項を確認</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🗄️ データソース</div>
+      <p style="font-size:13.5px;line-height:1.9">
+        <strong>ローカル薬剤データベース</strong><br>
+        国内主要処方薬 約160種を内蔵。オフラインでも即時検索可能。<br><br>
+        <strong>KEGG DRUG</strong>（インターネット接続時）<br>
+        国際公開医薬品データベース（KEGG）をAPIキー不要で参照。ローカルDBにない薬を補完。<br><br>
+        <strong>OCR（文字認識）</strong><br>
+        Tesseract.js（オープンソース）でお薬手帳の文字を認識。初回のみ日本語データを自動ダウンロード（約30MB）。
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⚠️ 注意事項</div>
+      <p style="font-size:13px;line-height:1.85;color:var(--text-sub)">
+        本ツールはデータベース・AIによる補助情報の提供を目的としており、医療診断・治療判断の代替にはなりません。
+        このアプリは外部にデータを送信しません（KEGGは薬品名のみ送信）。患者の個人情報は入力しないでください。
+        正確な情報は最新の添付文書・医師・薬剤師に確認してください。
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📲 インストール方法（PWA）</div>
+      <p style="font-size:13px;line-height:1.9">
+        <strong>iPhone/iPad (Safari)：</strong>共有ボタン →「ホーム画面に追加」<br>
+        <strong>Android (Chrome)：</strong>メニュー →「アプリをインストール」<br>
+        <strong>PC (Chrome/Edge)：</strong>アドレスバーのインストールアイコン
+      </p>
+    </div>
+
+  </section>
+
+</main>
+
+<!-- ═══ 解析ボタン ═══ -->
+<div class="analyze-bar">
+  <button id="analyze-btn" class="btn btn-green btn-block" type="button" disabled>
+    薬を追加してください
+  </button>
+</div>
+
+<!-- ═══ カメラモーダル ═══ -->
+<div id="camera-modal" class="modal" style="display:none" role="dialog" aria-modal="true">
+  <div class="modal-head">
+    <h2>📸 お薬手帳を撮影</h2>
+    <button id="close-camera-btn" class="btn-modal-close" type="button">✕</button>
+  </div>
+  <div class="modal-media">
+    <video id="cam-video" autoplay playsinline muted></video>
+    <canvas id="cam-canvas"></canvas>
+  </div>
+  <div class="modal-foot">
+    <button id="shutter-btn" class="shutter" type="button" aria-label="撮影">📷</button>
+  </div>
+</div>
+
+<!-- ═══ スキャナモーダル ═══ -->
+<div id="scanner-modal" class="modal" style="display:none" role="dialog" aria-modal="true">
+  <div class="modal-head">
+    <h2>🔲 QR / バーコード スキャン</h2>
+    <button id="close-scanner-btn" class="btn-modal-close" type="button">✕</button>
+  </div>
+  <div id="qr-reader-wrap"><div id="qr-reader"></div></div>
+</div>
+
+<!-- ═══ OCR結果ダイアログ ═══ -->
+<div id="ocr-modal" class="modal" style="display:none" role="dialog" aria-modal="true">
+  <div class="modal-head">
+    <h2>🔍 OCR結果 — 薬名を選択</h2>
+    <button id="ocr-close-btn" class="btn-modal-close" type="button">✕</button>
+  </div>
+  <div class="ocr-body">
+
+    <div class="ocr-section">
+      <div class="ocr-label">薬名の候補（タップして選択）</div>
+      <div id="ocr-candidates" class="ocr-chips"></div>
+      <div id="ocr-selected-list"></div>
+    </div>
+
+    <div class="ocr-section">
+      <div class="ocr-label">手動で追加する薬名</div>
+      <input id="ocr-manual-input" class="text-input" type="text"
+        placeholder="薬品名を入力（任意）" autocomplete="off">
+    </div>
+
+    <div class="ocr-section">
+      <div class="ocr-label">認識されたテキスト（参考）</div>
+      <textarea id="ocr-raw-text" class="ocr-textarea" readonly></textarea>
+    </div>
+
+  </div>
+  <div class="ocr-footer">
+    <button id="ocr-confirm-btn" class="btn btn-green btn-block" type="button">✅ 選択した薬を追加する</button>
+  </div>
+</div>
+
+<script src="drugdb.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
