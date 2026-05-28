@@ -6,6 +6,7 @@
 let medications = [];
 let cameraStream = null;
 let qrScanner   = null;
+let claudeApiKey = '';
 
 // ──────────────────────────────────────────────────────────────
 //  KEGG translation tables
@@ -45,6 +46,7 @@ function translateClass(en) {
 //  Boot
 // ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  loadApiKey();
   renderMedList();
   bindEvents();
   registerSW();
@@ -74,6 +76,9 @@ function bindEvents() {
   document.getElementById('close-scanner-btn').addEventListener('click', closeScanner);
   document.getElementById('ocr-close-btn').addEventListener('click', closeOCRDialog);
   document.getElementById('ocr-confirm-btn').addEventListener('click', confirmOCRDrugs);
+  document.getElementById('save-api-btn').addEventListener('click', () =>
+    saveApiKey(document.getElementById('api-key-input').value)
+  );
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -224,8 +229,13 @@ async function runOCR(imageSource) {
         }
       }
     });
+    let aiDrugs = null;
+    if (claudeApiKey) {
+      showProgress('🤖 Claude AIで薬名を識別中…', 97);
+      aiDrugs = await identifyDrugsWithClaude(text);
+    }
     const candidates = extractDrugCandidates(text);
-    showOCRDialog(text, candidates);
+    showOCRDialog(text, candidates, aiDrugs);
   } catch (err) {
     const msg = err.message || String(err);
     if (msg.includes('fetch') || msg.includes('network') || msg.includes('Failed')) {
@@ -255,12 +265,35 @@ function showProgress(msg, pct) {
     </div>`;
 }
 
-function showOCRDialog(rawText, candidates) {
-  const chips = candidates.map(c =>
-    `<button class="ocr-chip" data-name="${esc(c)}">${esc(c)}</button>`
-  ).join('');
+function showOCRDialog(rawText, candidates, aiDrugs = null) {
+  let html = '';
+
+  if (aiDrugs && aiDrugs.length > 0) {
+    html += '<div class="ocr-label" style="margin-bottom:6px">🤖 Claude AIが識別した薬名（自動選択済み）</div><div class="ocr-chips">';
+    html += aiDrugs.map(c =>
+      `<button class="ocr-chip ocr-chip-ai selected" data-name="${esc(c)}">${esc(c)}</button>`
+    ).join('');
+    html += '</div>';
+  } else if (aiDrugs !== null && aiDrugs.length === 0) {
+    html += '<div style="font-size:12px;color:var(--text-sub);margin-bottom:8px">🤖 Claude AI：薬名が見つかりませんでした</div>';
+  }
+
+  const aiSet = new Set((aiDrugs || []).map(n => n.toLowerCase()));
+  const remaining = candidates.filter(c => !aiSet.has(c.toLowerCase()));
+  if (remaining.length > 0) {
+    html += `<div class="ocr-label" style="margin-top:${aiDrugs ? '12px' : '0'};margin-bottom:6px">${aiDrugs ? 'その他の候補' : '薬名の候補（タップして選択）'}</div><div class="ocr-chips">`;
+    html += remaining.map(c =>
+      `<button class="ocr-chip" data-name="${esc(c)}">${esc(c)}</button>`
+    ).join('');
+    html += '</div>';
+  }
+
+  if (!html) {
+    html = '<span style="color:var(--text-sub);font-size:13px">候補が見つかりませんでした。下のテキストから薬名を確認してください。</span>';
+  }
+
   document.getElementById('ocr-raw-text').value = rawText;
-  document.getElementById('ocr-candidates').innerHTML = chips || '<span style="color:var(--text-sub);font-size:13px">候補が見つかりませんでした。下のテキストから薬名を確認してください。</span>';
+  document.getElementById('ocr-candidates').innerHTML = html;
   document.getElementById('ocr-selected-list').innerHTML = '';
   document.getElementById('ocr-modal').style.display = 'flex';
 
@@ -270,6 +303,8 @@ function showOCRDialog(rawText, candidates) {
       updateOCRSelectedList();
     });
   });
+
+  updateOCRSelectedList();
 }
 
 function updateOCRSelectedList() {
@@ -338,6 +373,76 @@ function parseJAHIS(text) {
     if (/^RP\d/i.test(line)) { const p = line.split(';'); if (p[2]) names.push(p[2].trim()); }
   });
   return names;
+}
+
+// ──────────────────────────────────────────────────────────────
+//  Claude API — AI薬名識別
+// ──────────────────────────────────────────────────────────────
+function loadApiKey() {
+  claudeApiKey = localStorage.getItem('claude_api_key') || '';
+  updateApiStatus();
+}
+
+function saveApiKey(key) {
+  claudeApiKey = key.trim();
+  if (claudeApiKey) {
+    localStorage.setItem('claude_api_key', claudeApiKey);
+    toast('✅ APIキーを保存しました');
+  } else {
+    localStorage.removeItem('claude_api_key');
+    toast('APIキーを削除しました');
+  }
+  updateApiStatus();
+}
+
+function updateApiStatus() {
+  const dot   = document.getElementById('api-dot');
+  const label = document.getElementById('api-label');
+  const input = document.getElementById('api-key-input');
+  if (claudeApiKey) {
+    dot.style.background = 'var(--green)';
+    label.textContent = 'Claude AI 有効';
+    if (input) input.value = claudeApiKey;
+  } else {
+    dot.style.background = '#ccc';
+    label.textContent = 'AIキー未設定';
+  }
+}
+
+async function identifyDrugsWithClaude(text) {
+  if (!claudeApiKey) return null;
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 15000);
+    const res  = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': claudeApiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-allow-browser': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 512,
+        messages: [{
+          role: 'user',
+          content: `以下はお薬手帳のOCRテキストです。薬品名（医薬品名）だけを抽出し、JSON配列で返してください。病院名・日付・住所・用法・数量・一般語は含めないでください。薬品名が見つからない場合は [] を返してください。\n\nテキスト:\n${text.substring(0, 2000)}\n\n返答（JSONのみ）: ["薬品名1","薬品名2"]`
+        }]
+      })
+    });
+    clearTimeout(tid);
+    if (!res.ok) return null;
+    const data  = await res.json();
+    const raw   = data.content?.[0]?.text || '';
+    const match = raw.match(/\[[\s\S]*?\]/);
+    if (!match) return null;
+    const names = JSON.parse(match[0]);
+    return Array.isArray(names) ? names.filter(n => typeof n === 'string' && n.trim()) : null;
+  } catch {
+    return null;
+  }
 }
 
 // ──────────────────────────────────────────────────────────────
