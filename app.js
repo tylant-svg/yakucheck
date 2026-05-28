@@ -287,7 +287,7 @@ function normalizeOcrText(text) {
   let prev;
   do {
     prev = s;
-    s = s.replace(/([ぁ-ヿ一-龥])\s+([ぁ-ヿ一-龥])/g, '$1$2');
+    s = s.replace(/([ぁ-ヿ一-龥])[ \t]+([ぁ-ヿ一-龥])/g, '$1$2');
   } while (s !== prev);
 
   return s;
