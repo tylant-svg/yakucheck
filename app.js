@@ -281,7 +281,16 @@ function normalizeOcrText(text) {
     'ﾗ':'ラ','ﾘ':'リ','ﾙ':'ル','ﾚ':'レ','ﾛ':'ロ',
     'ﾜ':'ワ','ﾝ':'ン','ﾞ':'゛','ﾟ':'゜',
   };
-  return s.split('').map(c => map[c] ?? c).join('');
+  s = s.split('').map(c => map[c] ?? c).join('');
+
+  // OCRで日本語文字間にスペースが挿入される問題を修正（「ア ム ロ」→「アムロ」）
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/([ぁ-ヿ一-龥])\s+([ぁ-ヿ一-龥])/g, '$1$2');
+  } while (s !== prev);
+
+  return s;
 }
 
 function extractDrugCandidates(text) {
@@ -295,30 +304,58 @@ function extractDrugCandidates(text) {
 function matchDrugsInText(text) {
   const results = [];
   const normText = normalizeName(text);
+  const textNoSp = text.replace(/\s/g, '');      // 全スペース除去（OCR文字間スペース対策）
+  const normNoSp = normalizeName(textNoSp);
   const seen = new Set();
 
   for (const entry of DRUGDB) {
     for (const kw of entry.keywords) {
       if (kw.length < 3) continue;
+      const kwNorm = normalizeName(kw);
+      const dedup  = entry.keywords[0];
 
-      // 元テキストで直接マッチ → 剤形・容量ごと抽出
+      // ① 元テキストで直接マッチ → 剤形・容量ごと抽出
       const idx = text.indexOf(kw);
       if (idx !== -1) {
         const token = text.slice(idx).match(/^\S+/)?.[0] ?? kw;
-        const dedup = entry.keywords[0];
         if (!seen.has(dedup)) { seen.add(dedup); results.push(token); }
         break;
       }
 
-      // 正規化マッチ（フォールバック） → 正規化済みキーワードをそのまま表示
-      const kwNorm = normalizeName(kw);
+      // ② 正規化マッチ
       if (kwNorm.length >= 3 && normText.includes(kwNorm)) {
-        const dedup = entry.keywords[0];
+        if (!seen.has(dedup)) { seen.add(dedup); results.push(kw); }
+        break;
+      }
+
+      // ③ スペース除去正規化マッチ（文字間スペースが残っている場合の追加対策）
+      if (kwNorm.length >= 3 && normNoSp.includes(kwNorm)) {
         if (!seen.has(dedup)) { seen.add(dedup); results.push(kw); }
         break;
       }
     }
   }
+
+  // ④ 部分一致：OCRテキストの4文字以上カタカナトークンがDBキーワードに含まれているか確認
+  //    （「アムロジ」→「アムロジピン」のような途中切れにも対応）
+  const tokens = [...new Set((textNoSp.match(/[ァ-ヿ]{4,}/g) || []))];
+  for (const entry of DRUGDB) {
+    const dedup = entry.keywords[0];
+    if (seen.has(dedup)) continue;
+    outer: for (const kw of entry.keywords) {
+      if (kw.length < 4) continue;
+      const kwNorm = normalizeName(kw);
+      if (kwNorm.length < 4) continue;
+      for (const token of tokens) {
+        if (kwNorm.includes(token)) {
+          seen.add(dedup);
+          results.push(kw);
+          break outer;
+        }
+      }
+    }
+  }
+
   return results;
 }
 
