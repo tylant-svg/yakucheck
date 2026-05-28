@@ -1,4 +1,4 @@
-const CACHE = 'yakucheck-v4';
+const CACHE = 'yakucheck-v6';
 const ASSETS = ['./index.html', './styles.css', './app.js', './drugdb.js', './manifest.json', './icons/icon.svg'];
 
 self.addEventListener('install', e =>
