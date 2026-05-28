@@ -213,7 +213,7 @@ async function runOCR(imageSource) {
       showProgress('Tesseract.js を読み込み中…', 5);
       await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
     }
-    const { data: { text } } = await Tesseract.recognize(imageSource, 'jpn', {
+    const { data: { text: rawText } } = await Tesseract.recognize(imageSource, 'jpn', {
       logger: m => {
         const pct = Math.round((m.progress || 0) * 100);
         if (m.status === 'loading tesseract core' || m.status === 'initializing tesseract') {
@@ -229,6 +229,8 @@ async function runOCR(imageSource) {
         }
       }
     });
+    // 半角カタカナを全角に正規化してからすべての処理に使用
+    const text = normalizeOcrText(rawText);
     showProgress('ローカルDBと照合中…', 96);
     const dbMatched = matchDrugsInText(text);
 
@@ -247,6 +249,39 @@ async function runOCR(imageSource) {
       showError('OCRに失敗しました: ' + msg);
     }
   }
+}
+
+// ──────────────────────────────────────────────────────────────
+//  半角カタカナ → 全角カタカナ 正規化
+// ──────────────────────────────────────────────────────────────
+function normalizeOcrText(text) {
+  // 濁点・半濁点の2文字結合を先に処理（ｶﾞ→ガ 等）
+  const dakuten = [
+    ['ｶﾞ','ガ'],['ｷﾞ','ギ'],['ｸﾞ','グ'],['ｹﾞ','ゲ'],['ｺﾞ','ゴ'],
+    ['ｻﾞ','ザ'],['ｼﾞ','ジ'],['ｽﾞ','ズ'],['ｾﾞ','ゼ'],['ｿﾞ','ゾ'],
+    ['ﾀﾞ','ダ'],['ﾁﾞ','ヂ'],['ﾂﾞ','ヅ'],['ﾃﾞ','デ'],['ﾄﾞ','ド'],
+    ['ﾊﾞ','バ'],['ﾋﾞ','ビ'],['ﾌﾞ','ブ'],['ﾍﾞ','ベ'],['ﾎﾞ','ボ'],['ｳﾞ','ヴ'],
+    ['ﾊﾟ','パ'],['ﾋﾟ','ピ'],['ﾌﾟ','プ'],['ﾍﾟ','ペ'],['ﾎﾟ','ポ'],
+  ];
+  let s = text;
+  for (const [h, z] of dakuten) s = s.split(h).join(z);
+
+  // 残りの単体半角カタカナ → 全角カタカナ
+  const map = {
+    'ｦ':'ヲ','ｧ':'ァ','ｨ':'ィ','ｩ':'ゥ','ｪ':'ェ','ｫ':'ォ',
+    'ｬ':'ャ','ｭ':'ュ','ｮ':'ョ','ｯ':'ッ','ｰ':'ー',
+    'ｱ':'ア','ｲ':'イ','ｳ':'ウ','ｴ':'エ','ｵ':'オ',
+    'ｶ':'カ','ｷ':'キ','ｸ':'ク','ｹ':'ケ','ｺ':'コ',
+    'ｻ':'サ','ｼ':'シ','ｽ':'ス','ｾ':'セ','ｿ':'ソ',
+    'ﾀ':'タ','ﾁ':'チ','ﾂ':'ツ','ﾃ':'テ','ﾄ':'ト',
+    'ﾅ':'ナ','ﾆ':'ニ','ﾇ':'ヌ','ﾈ':'ネ','ﾉ':'ノ',
+    'ﾊ':'ハ','ﾋ':'ヒ','ﾌ':'フ','ﾍ':'ヘ','ﾎ':'ホ',
+    'ﾏ':'マ','ﾐ':'ミ','ﾑ':'ム','ﾒ':'メ','ﾓ':'モ',
+    'ﾔ':'ヤ','ﾕ':'ユ','ﾖ':'ヨ',
+    'ﾗ':'ラ','ﾘ':'リ','ﾙ':'ル','ﾚ':'レ','ﾛ':'ロ',
+    'ﾜ':'ワ','ﾝ':'ン','ﾞ':'゛','ﾟ':'゜',
+  };
+  return s.split('').map(c => map[c] ?? c).join('');
 }
 
 function extractDrugCandidates(text) {
