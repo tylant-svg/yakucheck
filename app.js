@@ -260,12 +260,26 @@ function extractDrugCandidates(text) {
 function matchDrugsInText(text) {
   const results = [];
   const normText = normalizeName(text);
+  const seen = new Set();
+
   for (const entry of DRUGDB) {
     for (const kw of entry.keywords) {
       if (kw.length < 3) continue;
+
+      // 元テキストで直接マッチ → 剤形・容量ごと抽出
+      const idx = text.indexOf(kw);
+      if (idx !== -1) {
+        const token = text.slice(idx).match(/^\S+/)?.[0] ?? kw;
+        const dedup = entry.keywords[0];
+        if (!seen.has(dedup)) { seen.add(dedup); results.push(token); }
+        break;
+      }
+
+      // 正規化マッチ（フォールバック） → 正規化済みキーワードをそのまま表示
       const kwNorm = normalizeName(kw);
-      if (text.includes(kw) || normText.includes(kwNorm)) {
-        results.push(text.includes(kw) ? kw : entry.keywords[0]);
+      if (kwNorm.length >= 3 && normText.includes(kwNorm)) {
+        const dedup = entry.keywords[0];
+        if (!seen.has(dedup)) { seen.add(dedup); results.push(kw); }
         break;
       }
     }
