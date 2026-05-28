@@ -8,39 +8,6 @@ let cameraStream = null;
 let qrScanner   = null;
 let claudeApiKey = '';
 
-// ──────────────────────────────────────────────────────────────
-//  KEGG translation tables
-// ──────────────────────────────────────────────────────────────
-const KEGG_CLASS_JA = {
-  'Cardiovascular agent':'心臓・循環器系薬', 'Calcium channel blocker':'カルシウム拮抗薬',
-  'Antihypertensive':'降圧薬', 'Beta-adrenergic antagonist':'β遮断薬',
-  'Angiotensin receptor antagonist':'ARB', 'ACE inhibitor':'ACE阻害薬',
-  'Anticoagulant':'抗凝固薬', 'Antiplatelet agent':'抗血小板薬',
-  'Antidiabetic agent':'糖尿病治療薬', 'HMG-CoA reductase inhibitor':'スタチン',
-  'Lipid-lowering agent':'脂質異常症治療薬', 'Antidepressant':'抗うつ薬',
-  'Antipsychotic':'抗精神病薬', 'Anxiolytic':'抗不安薬',
-  'Benzodiazepine':'ベンゾジアゼピン系薬', 'Antiepileptic':'抗てんかん薬',
-  'Opioid':'オピオイド鎮痛薬', 'Analgesic':'鎮痛薬',
-  'Anti-inflammatory':'抗炎症薬', 'Immunosuppressant':'免疫抑制薬',
-  'Corticosteroid':'ステロイド薬', 'Thyroid hormone':'甲状腺ホルモン薬',
-  'Bronchodilator':'気管支拡張薬', 'Proton pump inhibitor':'プロトンポンプ阻害薬',
-  'H2 receptor antagonist':'H2遮断薬', 'Antibacterial':'抗菌薬',
-  'Antihistamine':'抗ヒスタミン薬', 'Diuretic':'利尿薬',
-  'Cardiac glycoside':'強心配糖体', 'Antiarrhythmic':'抗不整脈薬',
-  'Vasodilator':'血管拡張薬', 'Nitrate':'硝酸薬',
-  'Neurological agent':'神経系薬', 'Musculoskeletal agent':'筋骨格系薬',
-  'Hematopoietic agent':'造血薬', 'Gastrointestinal agent':'消化器系薬',
-  'Hormonal agent':'ホルモン薬', 'Osteoporosis':'骨粗鬆症治療薬',
-  'Antifungal':'抗真菌薬', 'Antiviral':'抗ウイルス薬',
-};
-
-function translateClass(en) {
-  if (!en) return en;
-  for (const [k, v] of Object.entries(KEGG_CLASS_JA)) {
-    if (en.toLowerCase().includes(k.toLowerCase())) return v;
-  }
-  return en;
-}
 
 // ──────────────────────────────────────────────────────────────
 //  Boot
@@ -566,7 +533,7 @@ async function identifyDrugsWithClaude(text) {
 }
 
 // ──────────────────────────────────────────────────────────────
-//  Main analysis — Local DB + KEGG
+//  Main analysis — Local DB
 // ──────────────────────────────────────────────────────────────
 async function runAnalysis() {
   if (medications.length === 0) { toast('薬を追加してください'); return; }
@@ -588,7 +555,6 @@ async function runAnalysis() {
 }
 
 async function lookupDrug(name) {
-  // 1. Local DB first
   const local = searchLocalDB(name);
   if (local.drug) {
     return {
@@ -599,74 +565,7 @@ async function lookupDrug(name) {
       emergency:local.drug.emergency,
     };
   }
-
-  // 2. KEGG API fallback
-  try {
-    const kegg = await lookupKEGG(name);
-    if (kegg) return { source: 'kegg', ...kegg };
-  } catch { /* network error → show as unknown */ }
-
   return { source: 'unknown', category: null, purpose: null, diseases: [], emergency: null };
-}
-
-// ──────────────────────────────────────────────────────────────
-//  KEGG API
-// ──────────────────────────────────────────────────────────────
-async function lookupKEGG(name) {
-  const searchRes = await fetchWithTimeout(
-    `https://rest.kegg.jp/find/drug/${encodeURIComponent(normalizeName(name))}`, 8000
-  );
-  if (!searchRes.ok) return null;
-  const searchText = await searchRes.text();
-  const firstLine  = searchText.trim().split('\n')[0];
-  if (!firstLine) return null;
-
-  const drugId = firstLine.split('\t')[0].trim();
-  if (!drugId.startsWith('D')) return null;
-
-  const detailRes = await fetchWithTimeout(`https://rest.kegg.jp/get/${drugId}`, 8000);
-  if (!detailRes.ok) return null;
-  const detail = await detailRes.text();
-
-  return parseKEGGEntry(detail);
-}
-
-function parseKEGGEntry(text) {
-  const lines = text.split('\n');
-  const sections = {};
-  let cur = null;
-  for (const line of lines) {
-    const m = line.match(/^([A-Z_]+)\s+(.*)/);
-    if (m && !line.startsWith(' ')) { cur = m[1]; sections[cur] = (sections[cur] || '') + m[2] + '\n'; }
-    else if (line.startsWith(' ') && cur) sections[cur] += line.trim() + '\n';
-    else if (!line.startsWith(' ') && line.trim()) cur = null;
-  }
-
-  // Class — take first line that doesn't start with DG/D digit
-  let rawClass = '';
-  if (sections.CLASS) {
-    const cl = sections.CLASS.split('\n').map(l => l.trim()).filter(l => l && !/^DG\d|^D\d/.test(l));
-    rawClass = cl[0] || '';
-  }
-
-  const efficacy = (sections.EFFICACY || sections.USAGE || '').split('\n').filter(Boolean).join('、').replace(/;/g, '、');
-  const interaction = sections.INTERACTION ? sections.INTERACTION.substring(0, 300).trim() : null;
-
-  const category = translateClass(rawClass) || rawClass;
-  const purpose  = efficacy || null;
-  const diseases = efficacy ? efficacy.split(/[;,、]/).map(s => s.trim()).filter(s => s.length > 0) : [];
-
-  return { category, purpose, diseases, emergency: interaction ? `相互作用: ${interaction}` : null };
-}
-
-async function fetchWithTimeout(url, ms) {
-  const ctrl = new AbortController();
-  const id   = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, { signal: ctrl.signal });
-  } finally {
-    clearTimeout(id);
-  }
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -714,18 +613,27 @@ function renderResults(results) {
   h += `<div class="result-section-title">💊 薬剤詳細 (${results.length}種類)</div>`;
   for (const r of results) {
     const hasCrit = !!r.emergency;
-    const sourceLabel = r.source === 'local' ? '● ローカルDB' : r.source === 'kegg' ? '● KEGG' : '● 不明';
-    const sourceColor = r.source === 'local' ? 'var(--green)' : r.source === 'kegg' ? 'var(--primary)' : '#999';
+    const isUnknown = r.source === 'unknown';
+    const sourceLabel = isUnknown ? '● 未登録' : '● ローカルDB';
+    const sourceColor = isUnknown ? '#999' : 'var(--green)';
+    const pmdaUrl = `https://www.pmda.go.jp/PmdaSearch/iyakuSearch/#k=${encodeURIComponent(r.inputName)}&tab=0`;
     h += `<div class="drug-item ${hasCrit ? 'has-alert' : ''}">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <div class="drug-name">${esc(r.inputName)}</div>
         <span style="font-size:10px;color:${sourceColor};white-space:nowrap">${sourceLabel}</span>
       </div>
-      <div class="drug-category">${esc(r.category || '分類不明')}</div>
+      <div class="drug-category">${esc(r.category || (isUnknown ? 'DBに未登録' : '分類不明'))}</div>
       <div class="drug-detail">
-        <strong>目　的</strong><br>${esc(r.purpose || '情報なし')}<br>
-        ${r.diseases?.length ? `<strong style="margin-top:6px;display:block">対象疾患</strong>${r.diseases.map(d => `<span class="tag tag-blue" style="margin-top:4px">${esc(d)}</span>`).join('')}` : ''}
-        ${hasCrit ? `<div class="drug-alert-note">⚠️ ${esc(r.emergency)}</div>` : ''}
+        ${isUnknown
+          ? `<span style="color:var(--text-sub);font-size:13px">ローカルDBに未登録の薬剤です。</span><br>
+             <a href="${pmdaUrl}" target="_blank" rel="noopener"
+                style="font-size:12px;color:var(--primary);text-decoration:none">
+               🔎 PMDAで「${esc(r.inputName)}」を検索 →
+             </a>`
+          : `<strong>目　的</strong><br>${esc(r.purpose || '情報なし')}<br>
+             ${r.diseases?.length ? `<strong style="margin-top:6px;display:block">対象疾患</strong>${r.diseases.map(d => `<span class="tag tag-blue" style="margin-top:4px">${esc(d)}</span>`).join('')}` : ''}
+             ${hasCrit ? `<div class="drug-alert-note">⚠️ ${esc(r.emergency)}</div>` : ''}`
+        }
       </div>
     </div>`;
   }
@@ -735,7 +643,7 @@ function renderResults(results) {
     <span class="alert-icon">ℹ️</span>
     <div class="alert-body">
       <strong>データソース</strong>
-      <p>ローカル薬剤DB（主要処方薬 約160種）+ <a href="https://www.genome.jp/kegg/" target="_blank" rel="noopener" style="color:inherit">KEGG DRUG</a> 公開データベース（認証不要・無料）</p>
+      <p>ローカル薬剤DB（国内主要処方薬 約500種・オフライン対応）。未登録薬は <a href="https://www.pmda.go.jp/PmdaSearch/iyakuSearch/" target="_blank" rel="noopener" style="color:inherit">PMDA 医薬品検索</a> で確認できます。</p>
     </div>
   </div>`;
 
